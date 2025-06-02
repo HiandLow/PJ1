@@ -5,17 +5,35 @@ import time
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from tf.transformations import quaternion_from_euler
 import matplotlib.pyplot as plt
+import math
 
 # 목적지 위치 미리 정의
+# station_locs = [
+#     (0.42, -0.23, 0.0),
+#     (0.62, -1.56, - math.pi / 2),
+#     (1.00, -2.91, 0.0),
+#     (2.78, -2.68, 0.0),
+#     (1.32, -0.14, 0.0),
+#     (3.34, 0.16, - math.pi / 2),
+#     (3.34, -1.05, - math.pi / 2)
+# ]
+
 station_locs = [
-    (1.5, 1.5, 0.0),
-    (1.5, 0.5, 0.0),
+    (-0.5, -0.5, 0.0),
+    (-0.5, 0.5, 0.0),
+    (-0.5, 1.5, 0.0),
     (0.5, -0.5, 0.0),
-    (-0.5, -1.5, 0.0),
-    (-1.5, -1.5, 0.0),
-    (-1.5, -0.5, 0.0),
-    (-0.5, 0.5, 0.0)
+    (0.5, 1.5, 0.0),
+    (1.5, -0.5, 0.0),
+    (1.5, 0.5, 0.0)
 ]
+
+next_station_info = [(0, (3, 0)), (1, (0, 0)), (0, (1, 0)), (1, (3, 0)), (2, (0, 0)), \
+                     (0, (0, 3)), (1, (1, 0)), (2, (3, 0)), (3, (0, 0)), (1, (0, 3)), \
+                     (4, (2, 0)), (5, (0, 0)), (2, (3, 0)), (3, (2, 0)), (6, (0, 0)), \
+                     (3, (3, 0)), (6, (0, 0)), (3, (3, 0)), (6, (0, 0)), (4, (3, 0)), \
+                     (5, (1, 0)), (6, (0, 0)), (5, (3, 0)), (6, (0, 0)), (5, (3, 0)), \
+                     (6, (0, 0))]
 
 class Station():
     def __init__(self, num, loc):
@@ -25,7 +43,7 @@ class Station():
         self.time = float('inf') 
         self.finish_time = float('inf')
         self.producing = 0
-        self.ct_part = 0
+        self.ct_part = float('inf')
     
 class Robot:
     def __init__(self):
@@ -58,67 +76,15 @@ class Env:
         self.wipa = []
         self.wipb = []
 
+        self.idx = 0
+
     def next_station(self):
-        idx = 0
+        station, n_pick = next_station_info[self.idx]
 
-        if sum(self.robot.inv) == 0:
-            if self.station[1].state[0][0] <= 1 and self.wip_a < self.goal_a:   #raw materials A
-                idx = 0
+        self.idx += 1
+        self.robot.station = station
 
-            elif self.station[1].state[1][0] <= 1 and self.wip_b < self.goal_b:     # raw materials B
-                idx = 0
-
-            elif self.station[2].state[0] <= 1 and self.station[1].state[0][2] > 0:    # process A_1
-                idx = 1
-
-            elif self.station[4].state[0] <= 1 and self.station[1].state[1][2] > 0:    # process B_1
-                idx = 1
-
-            elif self.station[3].state[0] <= 1 and self.station[2].state[2] > 0:    # process A_2
-                idx = 2
-
-            elif self.station[5].state[0] <= 1 and self.station[4].state[2] > 0:    # process B_2
-                idx = 4
-
-            elif self.station[3].state[2] > 0:  # part A
-                idx = 3
-
-            elif self.station[5].state[2] > 0:  # part B
-                idx = 5
-
-            else:
-                idx = 0
-
-        elif self.robot.inv[0] > 0:
-            idx = 1
-
-        elif self.robot.inv[1] > 0:
-            idx = 1
-
-        elif self.robot.inv[2] > 0:
-            idx = 2
-
-        elif self.robot.inv[3] > 0:
-            idx = 3
-
-        elif self.robot.inv[4] > 0:
-            idx = 4
-
-        elif self.robot.inv[5] > 0:
-            idx = 5
-
-        elif self.robot.inv[6] > 0:
-            idx = 6
-
-        elif self.robot.inv[7] > 0:
-            idx = 6
-
-        else:
-            idx = 0
-
-        self.robot.station = idx
-
-        return self.station[idx]
+        return self.station[station], n_pick
 
     def update_station(self):
         if self.station[1].state[0][1] + self.station[1].state[1][1] == 0 and \
@@ -168,23 +134,19 @@ class Env:
             print(f"스테이션 {s.num} 상태: {s.state}, 시간: {s.time}")
         return
 
-    def update_robot(self):
+    def update_robot(self, n_pick):
         idx = self.robot.station
 
         if idx == 0:
-            capacity = self.robot.capacity - sum(self.robot.inv)            
-            cnt = min(self.goal_a - self.wip_a, capacity)
+            rospy.sleep(self.process_time[0])
 
-            self.station[0].state[0] -= cnt
-            self.robot.inv[0] += cnt
-            self.wip_a += cnt
+            self.wip_a += n_pick[0]
+            self.wip_b += n_pick[1]
 
-            capacity = self.robot.capacity - sum(self.robot.inv)
-            cnt = min(self.goal_b - self.wip_b, capacity)
+            self.robot.inv[0] += n_pick[0]
+            self.robot.inv[1] += n_pick[1]
 
-            self.station[0].state[0] -= cnt
-            self.robot.inv[1] += cnt
-            self.wip_b += cnt
+            self.station[0].state[0] -= n_pick[0] + n_pick[1]
 
         elif idx == 1:
             self.station[1].state[0][0] += self.robot.inv[0]
@@ -193,56 +155,54 @@ class Env:
             self.station[1].state[1][0] += self.robot.inv[1]
             self.robot.inv[1] = 0
 
-            capacity = self.robot.capacity - sum(self.robot.inv)
-            cnt = min(self.station[1].state[0][2], capacity)
+            self.station[1].state[0][2] -= n_pick[0]
+            self.robot.inv[2] += n_pick[0]
 
-            self.station[1].state[0][2] -= cnt
-            self.robot.inv[2] += cnt
-
-            capacity = self.robot.capacity - sum(self.robot.inv)
-            cnt = min(self.station[1].state[1][2], capacity)
-
-            self.station[1].state[1][2] -= cnt
-            self.robot.inv[4] += cnt       
+            self.station[1].state[1][2] -= n_pick[1]
+            self.robot.inv[4] += n_pick[1]
 
         elif idx == 6:
+            rospy.sleep(self.process_time[6])
+
             self.station[6].state[0][0] += self.robot.inv[6]
             self.robot.inv[6] = 0
-
-            if self.robot.inv[7] >= self.goal_a:    
-                self.station[6].state[0][1] = time.time()   #finish_time a
 
             self.station[6].state[1][0] += self.robot.inv[7]
             self.robot.inv[7] = 0
 
-            if self.robot.inv[7] >= self.goal_a:
+            if self.station[6].state[0][0] >= self.goal_a and self.station[6].state[0][1] == float('inf'):    
+                self.station[6].state[0][1] = time.time()   #finish_time a
+
+            if self.station[6].state[1][0] >= self.goal_b and self.station[6].state[1][1] == float('inf'):
                 self.station[6].state[1][1] = time.time()   #finish_time b
 
         else:
             self.station[idx].state[0] += self.robot.inv[idx]
             self.station[idx].producing += self.robot.inv[idx]
-
-            if idx <= 3 and self.station[idx].producing >= self.goal_a - 4:
-                self.station[idx].ct_part = (time.time() - self.start_time) / (self.goal_a - 4)
-
-            elif idx >= 4 and self.station[idx].producing >= self.goal_b - 4:
-                self.station[idx].ct_part = (time.time() - self.start_time) / (self.goal_b - 4)
-
             self.robot.inv[idx] = 0
 
-            capacity = self.robot.capacity - sum(self.robot.inv)
-            cnt = min(self.station[idx].state[2], capacity)
+            if idx == 2 and self.station[idx].producing >= self.goal_a - 4 and self.station[idx].ct_part == float('inf'):
+                self.station[idx].ct_part = (time.time() - self.start_time) / (self.goal_a - 4)
 
-            self.station[idx].state[2] -= cnt
+            elif idx == 3 and self.station[idx].producing >= self.goal_a - 2 and self.station[idx].ct_part == float('inf'):
+                self.station[idx].ct_part = (time.time() - self.start_time + self.station[2].ct_part * 2) / (self.goal_a - 2)
+
+            elif idx == 4 and self.station[idx].producing >= self.goal_b - 4 and self.station[idx].ct_part == float('inf'):
+                self.station[idx].ct_part = (time.time() - self.start_time) / (self.goal_b - 4)
+
+            elif idx == 5 and self.station[idx].producing >= self.goal_b - 2 and self.station[idx].ct_part == float('inf'):
+                self.station[idx].ct_part = (time.time() - self.start_time + self.station[4].ct_part * 2) / (self.goal_b - 2)
+
+            self.station[idx].state[2] -= n_pick[0]
             
             if idx == 2 or idx == 4:
-                self.robot.inv[idx + 1] += cnt
+                self.robot.inv[idx + 1] += n_pick[0]
 
             elif idx == 3:
-                self.robot.inv[idx + 3] += cnt
+                self.robot.inv[idx + 3] += n_pick[0]
 
             else:   # idx == 5
-                self.robot.inv[idx + 2] += cnt
+                self.robot.inv[idx + 2] += n_pick[0]
 
         print(f"[INFO] 로봇 상태 업데이트: {self.robot.inv}, 스테이션 {idx} 상태: {self.station[idx].state}")
         return
@@ -276,9 +236,11 @@ def main():
     timer = rospy.Timer(rospy.Duration(1), lambda event: env.update_station())
 
     while env.goal > env.station[6].state[0][0] + env.station[6].state[1][0]:
-        move_loc(*env.next_station().loc)
-        env.update_robot()
-
+        station, n_pick = env.next_station()
+        move_loc(*station.loc)
+        env.update_robot(n_pick)
+        
+    env.update_station()
     timer.shutdown()
 
     ct_part = [env.station[i].ct_part for i in range(2, 6)]
